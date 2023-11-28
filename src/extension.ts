@@ -3,15 +3,14 @@
 import { resolve } from "path";
 import * as vscode from "vscode";
 import * as path from "path";
+import * as fs from "fs";
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("aider.debugChat", async () => {
-      ReactPanel.createOrShow(
-        context.extensionPath.replace("build", "webviews/build")
-      );
+      ReactPanel.createOrShow(context.extensionPath);
     })
   );
 
@@ -113,7 +112,6 @@ export class ReactPanel {
   }
 
   private constructor(extensionPath: string, column: vscode.ViewColumn) {
-    console.log(extensionPath);
     this._extensionPath = extensionPath;
 
     // Create and show a new webview panel
@@ -127,7 +125,7 @@ export class ReactPanel {
 
         // And restric the webview to only loading content from our extension's `media` directory.
         localResourceRoots: [
-          vscode.Uri.file(path.join(this._extensionPath, "build")),
+          vscode.Uri.file(path.join(this._extensionPath, "webviews", "build")),
         ],
       }
     );
@@ -174,47 +172,53 @@ export class ReactPanel {
   }
 
   private _getHtmlForWebview() {
-    const manifest = require(path.join(
+    const manifestPath = path.join(
       this._extensionPath,
+      "webviews",
       "build",
       "asset-manifest.json"
-    ));
+    );
+    const manifestContent = fs.readFileSync(manifestPath, "utf8");
+    const manifest = JSON.parse(manifestContent);
     const mainScript = manifest["files"]["main.js"];
     const mainStyle = manifest["files"]["main.css"];
 
     const scriptPathOnDisk = vscode.Uri.file(
-      path.join(this._extensionPath, "build", mainScript)
+      path.join(this._extensionPath, "webviews", "build", mainScript)
     );
-    const scriptUri = scriptPathOnDisk.with({ scheme: "vscode-resource" });
+    const scriptUri = this._panel.webview.asWebviewUri(scriptPathOnDisk);
+
     const stylePathOnDisk = vscode.Uri.file(
-      path.join(this._extensionPath, "build", mainStyle)
+      path.join(this._extensionPath, "webviews", "build", mainStyle)
     );
-    const styleUri = stylePathOnDisk.with({ scheme: "vscode-resource" });
+    const styleUri = this._panel.webview.asWebviewUri(stylePathOnDisk);
 
     // Use a nonce to whitelist which scripts can be run
     const nonce = getNonce();
 
     return `<!DOCTYPE html>
-			<html lang="en">
-			<head>
-				<meta charset="utf-8">
-				<meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no">
-				<meta name="theme-color" content="#000000">
-				<title>React App</title>
-				<link rel="stylesheet" type="text/css" href="${styleUri}">
-				<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src vscode-resource: https:; script-src 'nonce-${nonce}';style-src vscode-resource: 'unsafe-inline' http: https: data:;">
-				<base href="${vscode.Uri.file(path.join(this._extensionPath, "build")).with({
+    <html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width,initial-scale=1,shrink-to-fit=no">
+        <meta name="theme-color" content="#000000">
+        <title>React App</title>
+        <link rel="stylesheet" type="text/css" href="${styleUri}">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src vscode-resource: https:; script-src 'nonce-${nonce}';style-src vscode-resource: 'unsafe-inline' http: https: data:;">
+        <base href="${vscode.Uri.file(
+          path.join(this._extensionPath, "build")
+        ).with({
           scheme: "vscode-resource",
         })}/">
-			</head>
+    </head>
 
-			<body>
-				<noscript>You need to enable JavaScript to run this app.</noscript>
-				<div id="root"></div>
-				
-				<script nonce="${nonce}" src="${scriptUri}"></script>
-			</body>
-			</html>`;
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <div id="root"></div>
+        
+        <script nonce="${nonce}" src="${scriptUri}"></script>
+    </body>
+    </html>`;
   }
 }
 
